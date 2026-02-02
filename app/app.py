@@ -6,9 +6,11 @@ from pathlib import Path
 
 import duckdb
 from flask import Flask, render_template, request, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_PARQUET = BASE_DIR / "data" / "parquet" / "opnirreikningar.parquet"
+OPNIR_PREFIX = os.getenv("OPNIR_PREFIX", "").rstrip("/")
 
 COLUMN_NAMES = {
     "Kaupandi": "Kaupandi",
@@ -100,6 +102,25 @@ def _cell_url(col_name: str, value, year: str, buyer: str, vendor: str, entry_ty
 
 def create_app() -> Flask:
     app = Flask(__name__)
+
+    if OPNIR_PREFIX:
+        app.config["APPLICATION_ROOT"] = OPNIR_PREFIX
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1, x_prefix=1)
+
+        class PrefixMiddleware:
+            def __init__(self, app, prefix: str):
+                self.app = app
+                self.prefix = prefix
+
+            def __call__(self, environ, start_response):
+                script_name = self.prefix
+                path_info = environ.get("PATH_INFO", "")
+                if path_info.startswith(script_name):
+                    environ["SCRIPT_NAME"] = script_name
+                    environ["PATH_INFO"] = path_info[len(script_name):] or "/"
+                return self.app(environ, start_response)
+
+        app.wsgi_app = PrefixMiddleware(app.wsgi_app, OPNIR_PREFIX)
 
     @app.route("/")
     def index():
