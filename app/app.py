@@ -254,7 +254,7 @@ def create_app() -> Flask:
             if value is None:
                 continue
             buyer_links.append({
-                "label": f"{value} ({count})",
+                "label": f"{value} ({_format_number(count)})",
                 "value": value,
                 "url": url_for("index", **{**base_params, "buyer": _toggle_value(buyer, value), "page": 1}),
                 "active": value == buyer,
@@ -269,7 +269,7 @@ def create_app() -> Flask:
             if value is None:
                 continue
             vendor_links.append({
-                "label": f"{value} ({count})",
+                "label": f"{value} ({_format_number(count)})",
                 "value": value,
                 "url": url_for("index", **{**base_params, "vendor": _toggle_value(vendor, value), "page": 1}),
                 "active": value == vendor,
@@ -284,7 +284,7 @@ def create_app() -> Flask:
             if value is None:
                 continue
             type_links.append({
-                "label": f"{value} ({count})",
+                "label": f"{value} ({_format_number(count)})",
                 "value": value,
                 "url": url_for("index", **{**base_params, "type": _toggle_value(entry_type, value), "page": 1}),
                 "active": value == entry_type,
