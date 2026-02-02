@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Opnir reikningar</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  </head>
+  <body>
+    <header>
+      <h1>Opnir reikningar</h1>
+      <p class="subtitle">Filter by year, buyer, vendor, and type</p>
+    </header>
+
+    {% if missing %}
+      <section class="notice">
+        <p>No parquet file found at:</p>
+        <code>{{ parquet_path }}</code>
+        <p>Run the pipeline first:</p>
+        <pre><code>python scripts/pipeline.py --from 2021-08-01 --to 2021-08-31</code></pre>
+      </section>
+    {% else %}
+      <div class="container">
+        <aside class="panel">
+          <div class="section-title">Years</div>
+          <div class="pill-grid">
+            {% for link in year_links %}
+              <a class="pill {% if link.active %}active{% endif %}" href="{{ link.url }}">{{ link.label }}</a>
+            {% endfor %}
+          </div>
+
+          <div class="section-title">Kaupandi</div>
+          <div class="pill-grid">
+            {% for link in buyer_links %}
+              <a class="pill {% if link.active %}active{% endif %}" href="{{ link.url }}">{{ link.label }}</a>
+            {% endfor %}
+          </div>
+
+          <div class="section-title">Birgi</div>
+          <div class="pill-grid">
+            {% for link in vendor_links %}
+              <a class="pill {% if link.active %}active{% endif %}" href="{{ link.url }}">{{ link.label }}</a>
+            {% endfor %}
+          </div>
+
+          <div class="section-title">Tegund</div>
+          <div class="pill-grid">
+            {% for link in type_links %}
+              <a class="pill {% if link.active %}active{% endif %}" href="{{ link.url }}">{{ link.label }}</a>
+            {% endfor %}
+          </div>
+        </aside>
+
+        <section class="panel">
+          <div class="meta">
+            <div>Total rows: <strong>{{ total }}</strong></div>
+            <div>Page: <strong>{{ page }}</strong> / {{ pages }}</div>
+          </div>
+          <div class="meta totals">
+            <div>Sum: <strong>{{ sum_total_display }}</strong></div>
+            <div>+ <strong>{{ sum_pos_display }}</strong></div>
+            <div>- <strong>{{ sum_neg_display }}</strong></div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  {% for col in columns %}
+                    <th>{{ col }}</th>
+                  {% endfor %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in rows %}
+                  <tr>
+                    {% for col in columns %}
+                      <td>
+                        {% if col in clickable_columns and row[col] %}
+                          <a href="{{ cell_url(col, row[col], year, buyer, vendor, entry_type) }}">{{ row[col] }}</a>
+                        {% else %}
+                          {{ row[col] }}
+                        {% endif %}
+                      </td>
+                    {% endfor %}
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="pager">
+            {% if page > 1 %}
+              <a href="{{ url_for('index', year=year, buyer=buyer, vendor=vendor, type=entry_type, page=page - 1) }}">Prev</a>
+            {% endif %}
+            {% if page < pages %}
+              <a href="{{ url_for('index', year=year, buyer=buyer, vendor=vendor, type=entry_type, page=page + 1) }}">Next</a>
+            {% endif %}
+          </div>
+        </section>
+      </div>
+    {% endif %}
+  </body>
+</html>
