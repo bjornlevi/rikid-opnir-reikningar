@@ -83,4 +83,5 @@ if [ -n "$FORCE_DOWNLOAD" ]; then
   args+=("--force-download")
 fi
 
-exec "$PYTHON" "${args[@]}"
+"$PYTHON" "${args[@]}"
+"$PYTHON" "$ROOT_DIR/scripts/build_anomalies.py"

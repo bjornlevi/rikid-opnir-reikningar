@@ -9,7 +9,7 @@ TYPE_ID ?=
 SEARCH_FROM ?=
 SEARCH_TO ?=
 
-.PHONY: pipeline web earliest
+.PHONY: pipeline web earliest anomalies
 
 pipeline:
 	@if [ -z "$(TO)" ]; then \
@@ -38,3 +38,7 @@ earliest:
 		$(if $(SEARCH_TO),--search-to $(SEARCH_TO),) \
 		--org-id "$(ORG_ID)" --vendor-id "$(VENDOR_ID)" --type-id "$(TYPE_ID)" \
 		$(if $(EXACT),--exact,)
+
+anomalies:
+	@echo "Building anomalies parquet files..."
+	$(PYTHON) scripts/build_anomalies.py

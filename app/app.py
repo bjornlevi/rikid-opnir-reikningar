@@ -13,6 +13,12 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_PARQUET = BASE_DIR / "data" / "parquet" / "opnirreikningar.parquet"
+DEFAULT_ANOMALIES_PARQUET = Path(
+    os.environ.get("OPNIR_ANOMALIES_PARQUET", str(BASE_DIR / "data" / "parquet" / "anomalies_flagged.parquet"))
+)
+DEFAULT_ANOMALIES_ALL_PARQUET = Path(
+    os.environ.get("OPNIR_ANOMALIES_ALL_PARQUET", str(BASE_DIR / "data" / "parquet" / "anomalies_yearly_all.parquet"))
+)
 OPNIR_PREFIX = os.getenv("OPNIR_PREFIX", "").rstrip("/")
 
 CLICKABLE_COLUMNS = {
@@ -56,6 +62,18 @@ def _safe_path(path: Path) -> str:
 def _open_data_connection(parquet_path: Path) -> duckdb.DuckDBPyConnection:
     con = duckdb.connect(database=":memory:")
     con.execute(f"CREATE OR REPLACE VIEW data AS SELECT * FROM read_parquet('{_safe_path(parquet_path)}')")
+    return con
+
+
+def _open_anomalies_connection(parquet_path: Path) -> duckdb.DuckDBPyConnection:
+    con = duckdb.connect(database=":memory:")
+    con.execute(f"CREATE OR REPLACE VIEW anomalies AS SELECT * FROM read_parquet('{_safe_path(parquet_path)}')")
+    return con
+
+
+def _open_anomalies_all_connection(parquet_path: Path) -> duckdb.DuckDBPyConnection:
+    con = duckdb.connect(database=":memory:")
+    con.execute(f"CREATE OR REPLACE VIEW anomalies_all AS SELECT * FROM read_parquet('{_safe_path(parquet_path)}')")
     return con
 
 
@@ -156,139 +174,6 @@ def _write_csv_response(rows: list[dict], filename: str) -> Response:
         mimetype="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
-
-
-def _anomaly_base_sql() -> str:
-    return """
-        WITH yearly AS (
-            SELECT
-                YEAR("Dags.greiðslu") AS year,
-                "Kaupandi",
-                "Birgi",
-                "Tegund",
-                SUM(TRY_CAST("Upphæð línu" AS DOUBLE)) AS amount
-            FROM data
-            WHERE "Dags.greiðslu" IS NOT NULL
-            GROUP BY 1,2,3,4
-        ), with_prior AS (
-            SELECT
-                year,
-                "Kaupandi",
-                "Birgi",
-                "Tegund",
-                amount AS actual_real,
-                LAG(amount) OVER (PARTITION BY "Kaupandi", "Birgi", "Tegund" ORDER BY year) AS prior_real
-            FROM yearly
-        ), with_changes AS (
-            SELECT
-                year,
-                "Kaupandi",
-                "Birgi",
-                "Tegund",
-                actual_real,
-                prior_real,
-                actual_real - prior_real AS yoy_real_change,
-                CASE
-                    WHEN prior_real IS NULL OR ABS(prior_real) < 0.000001 THEN NULL
-                    ELSE (actual_real - prior_real) / ABS(prior_real)
-                END AS yoy_real_pct
-            FROM with_prior
-        ), series_counts AS (
-            SELECT
-                "Kaupandi",
-                "Birgi",
-                "Tegund",
-                COUNT(*) AS series_year_count
-            FROM yearly
-            GROUP BY 1,2,3
-        ), series_median AS (
-            SELECT
-                "Kaupandi",
-                "Birgi",
-                "Tegund",
-                MEDIAN(yoy_real_pct) AS median_yoy_real_pct
-            FROM with_changes
-            WHERE yoy_real_pct IS NOT NULL
-            GROUP BY 1,2,3
-        ), series_mad AS (
-            SELECT
-                c."Kaupandi",
-                c."Birgi",
-                c."Tegund",
-                MEDIAN(ABS(c.yoy_real_pct - m.median_yoy_real_pct)) AS mad_yoy_real_pct
-            FROM with_changes c
-            JOIN series_median m
-              ON c."Kaupandi" = m."Kaupandi"
-             AND c."Birgi" = m."Birgi"
-             AND c."Tegund" = m."Tegund"
-            WHERE c.yoy_real_pct IS NOT NULL
-            GROUP BY 1,2,3
-        ), scored AS (
-            SELECT
-                c.year,
-                c."Kaupandi",
-                c."Birgi",
-                c."Tegund",
-                c.actual_real,
-                c.prior_real,
-                c.yoy_real_change,
-                c.yoy_real_pct,
-                sc.series_year_count,
-                m.median_yoy_real_pct,
-                mad.mad_yoy_real_pct,
-                CASE
-                    WHEN c.yoy_real_pct IS NULL OR mad.mad_yoy_real_pct IS NULL OR mad.mad_yoy_real_pct = 0 THEN NULL
-                    ELSE 0.6745 * (c.yoy_real_pct - m.median_yoy_real_pct) / mad.mad_yoy_real_pct
-                END AS modified_zscore
-            FROM with_changes c
-            JOIN series_counts sc
-              ON c."Kaupandi" = sc."Kaupandi"
-             AND c."Birgi" = sc."Birgi"
-             AND c."Tegund" = sc."Tegund"
-            LEFT JOIN series_median m
-              ON c."Kaupandi" = m."Kaupandi"
-             AND c."Birgi" = m."Birgi"
-             AND c."Tegund" = m."Tegund"
-            LEFT JOIN series_mad mad
-              ON c."Kaupandi" = mad."Kaupandi"
-             AND c."Birgi" = mad."Birgi"
-             AND c."Tegund" = mad."Tegund"
-        )
-        SELECT
-            year,
-            "Kaupandi",
-            "Birgi",
-            "Tegund",
-            actual_real,
-            prior_real,
-            yoy_real_change,
-            yoy_real_pct,
-            ABS(yoy_real_change) AS abs_change_real,
-            CASE
-                WHEN yoy_real_change > 0 THEN 'increase'
-                WHEN yoy_real_change < 0 THEN 'decrease'
-                ELSE 'flat'
-            END AS direction,
-            CASE
-                WHEN yoy_real_pct IS NULL THEN ABS(yoy_real_change)
-                ELSE ABS(yoy_real_pct)
-            END AS anomaly_score
-        FROM scored
-        WHERE prior_real IS NOT NULL
-          AND series_year_count >= 4
-          AND yoy_real_pct IS NOT NULL
-          AND ABS(yoy_real_pct) >= 0.25
-          AND modified_zscore IS NOT NULL
-          AND ABS(modified_zscore) >= 3.5
-          AND ABS(prior_real) >= 2000000
-          AND ABS(yoy_real_change) >= 5000000
-    """.strip()
-
-
-def _prepare_anomalies_table(con: duckdb.DuckDBPyConnection) -> None:
-    # Materialize once so later queries reuse the same result instead of rerunning
-    # the full anomaly CTE graph multiple times per request.
-    con.execute("CREATE OR REPLACE TEMP TABLE anomalies_tmp AS " + _anomaly_base_sql())
 
 
 def create_app() -> Flask:
@@ -704,13 +589,18 @@ def create_app() -> Flask:
 
     @app.route("/anomalies")
     def anomalies():
-        parquet_path = Path(os.environ.get("OPNIR_PARQUET", DEFAULT_PARQUET)).resolve()
-        if not parquet_path.exists():
-            return render_template("anomalies.html", data_loaded=False, error=f"No data found at {parquet_path}.")
+        anomalies_path = DEFAULT_ANOMALIES_PARQUET.resolve()
+        anomalies_all_path = DEFAULT_ANOMALIES_ALL_PARQUET.resolve()
+        if not anomalies_path.exists():
+            return render_template(
+                "anomalies.html",
+                data_loaded=False,
+                error=f"No anomalies file found at {anomalies_path}. Run: make anomalies",
+            )
 
-        con = _open_data_connection(parquet_path)
+        con = _open_anomalies_connection(anomalies_path)
+        con_all = _open_anomalies_all_connection(anomalies_all_path) if anomalies_all_path.exists() else con
         try:
-            _prepare_anomalies_table(con)
             year = request.args.get("year", "all")
             direction = request.args.get("direction", "all")
             parent_col = request.args.get("parent_col", "Tegund")
@@ -741,7 +631,7 @@ def create_app() -> Flask:
                 params.append(parent_value)
             where_sql = f"WHERE {' AND '.join(where)}" if where else ""
 
-            total_records = int(con.execute(f"SELECT COUNT(*) FROM anomalies_tmp {where_sql}", params).fetchone()[0] or 0)
+            total_records = int(con.execute(f"SELECT COUNT(*) FROM anomalies {where_sql}", params).fetchone()[0] or 0)
             total_pages = max(1, int(math.ceil(total_records / page_size)))
             if page > total_pages:
                 page = total_pages
@@ -751,7 +641,7 @@ def create_app() -> Flask:
                 f"""
                 SELECT year, direction, anomaly_score, yoy_real_pct, yoy_real_change, actual_real, prior_real,
                        "Kaupandi", "Birgi", "Tegund"
-                FROM anomalies_tmp
+                FROM anomalies
                 {where_sql}
                 ORDER BY (yoy_real_pct IS NULL) ASC, anomaly_score DESC, abs_change_real DESC
                 LIMIT ? OFFSET ?
@@ -795,24 +685,13 @@ def create_app() -> Flask:
             if key_rows:
                 placeholders = ", ".join(["(?, ?, ?)"] * len(key_rows))
                 flat_params = [item for key in key_rows for item in key]
-                totals_rows = con.execute(
+                totals_rows = con_all.execute(
                     f"""
                     WITH k("Kaupandi", "Birgi", "Tegund") AS (
                         VALUES {placeholders}
-                    ),
-                    yearly AS (
-                        SELECT
-                            YEAR("Dags.greiðslu") AS year,
-                            "Kaupandi",
-                            "Birgi",
-                            "Tegund",
-                            SUM(TRY_CAST("Upphæð línu" AS DOUBLE)) AS amount
-                        FROM data
-                        WHERE "Dags.greiðslu" IS NOT NULL
-                        GROUP BY 1,2,3,4
                     )
-                    SELECT y.year, y."Kaupandi", y."Birgi", y."Tegund", y.amount
-                    FROM yearly y
+                    SELECT y.year, y."Kaupandi", y."Birgi", y."Tegund", y.actual_real
+                    FROM anomalies_all y
                     JOIN k
                       ON y."Kaupandi" = k."Kaupandi"
                      AND y."Birgi" = k."Birgi"
@@ -836,11 +715,11 @@ def create_app() -> Flask:
                 row["year_totals"] = totals_map.get(key, [])
                 row["row_id"] = f"{i}:{row.get('year')}:{row.get('Kaupandi')}:{row.get('Birgi')}:{row.get('Tegund')}"
 
-            years = [str(int(r[0])) for r in con.execute("SELECT DISTINCT year FROM anomalies_tmp ORDER BY year").fetchall()]
+            years = [str(int(r[0])) for r in con.execute("SELECT DISTINCT year FROM anomalies ORDER BY year").fetchall()]
             parent_values = [
                 r[0]
                 for r in con.execute(
-                    f'SELECT DISTINCT "{parent_col}" FROM anomalies_tmp WHERE "{parent_col}" IS NOT NULL ORDER BY "{parent_col}" LIMIT 1500'
+                    f'SELECT DISTINCT "{parent_col}" FROM anomalies WHERE "{parent_col}" IS NOT NULL ORDER BY "{parent_col}" LIMIT 1500'
                 ).fetchall()
             ]
 
@@ -858,7 +737,7 @@ def create_app() -> Flask:
                     SUM(abs_change_real) AS abs_change_sum,
                     SUM(CASE WHEN yoy_real_change > 0 THEN ABS(yoy_real_change) ELSE 0 END) AS abs_change_increase,
                     SUM(CASE WHEN yoy_real_change < 0 THEN ABS(yoy_real_change) ELSE 0 END) AS abs_change_decrease
-                FROM anomalies_tmp
+                FROM anomalies
                 {chart_where_sql}
                 GROUP BY year
                 ORDER BY year
@@ -884,6 +763,8 @@ def create_app() -> Flask:
             }
         finally:
             con.close()
+            if con_all is not con:
+                con_all.close()
 
         return render_template(
             "anomalies.html",
@@ -917,13 +798,12 @@ def create_app() -> Flask:
 
     @app.route("/anomalies/export")
     def anomalies_export():
-        parquet_path = Path(os.environ.get("OPNIR_PARQUET", DEFAULT_PARQUET)).resolve()
-        if not parquet_path.exists():
+        anomalies_path = DEFAULT_ANOMALIES_PARQUET.resolve()
+        if not anomalies_path.exists():
             return Response("No data available", status=404)
 
-        con = _open_data_connection(parquet_path)
+        con = _open_anomalies_connection(anomalies_path)
         try:
-            _prepare_anomalies_table(con)
             year = request.args.get("year", "all")
             direction = request.args.get("direction", "all")
             parent_col = request.args.get("parent_col", "Tegund")
@@ -948,7 +828,7 @@ def create_app() -> Flask:
                 f"""
                 SELECT year, direction, anomaly_score, yoy_real_pct, yoy_real_change, actual_real, prior_real,
                        "Kaupandi", "Birgi", "Tegund"
-                FROM anomalies_tmp
+                FROM anomalies
                 {where_sql}
                 ORDER BY (yoy_real_pct IS NULL) ASC, anomaly_score DESC, abs_change_real DESC
                 """,
