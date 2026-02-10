@@ -285,6 +285,12 @@ def _anomaly_base_sql() -> str:
     """.strip()
 
 
+def _prepare_anomalies_table(con: duckdb.DuckDBPyConnection) -> None:
+    # Materialize once so later queries reuse the same result instead of rerunning
+    # the full anomaly CTE graph multiple times per request.
+    con.execute("CREATE OR REPLACE TEMP TABLE anomalies_tmp AS " + _anomaly_base_sql())
+
+
 def create_app() -> Flask:
     app = Flask(__name__)
 
@@ -704,6 +710,7 @@ def create_app() -> Flask:
 
         con = _open_data_connection(parquet_path)
         try:
+            _prepare_anomalies_table(con)
             year = request.args.get("year", "all")
             direction = request.args.get("direction", "all")
             parent_col = request.args.get("parent_col", "Tegund")
@@ -721,7 +728,6 @@ def create_app() -> Flask:
                 page_size = 100
             page_size = max(25, min(500, page_size))
 
-            base_sql = _anomaly_base_sql()
             where = []
             params: list = []
             if year != "all":
@@ -735,9 +741,7 @@ def create_app() -> Flask:
                 params.append(parent_value)
             where_sql = f"WHERE {' AND '.join(where)}" if where else ""
 
-            total_records = int(
-                con.execute(f"SELECT COUNT(*) FROM ({base_sql}) a {where_sql}", params).fetchone()[0] or 0
-            )
+            total_records = int(con.execute(f"SELECT COUNT(*) FROM anomalies_tmp {where_sql}", params).fetchone()[0] or 0)
             total_pages = max(1, int(math.ceil(total_records / page_size)))
             if page > total_pages:
                 page = total_pages
@@ -747,7 +751,7 @@ def create_app() -> Flask:
                 f"""
                 SELECT year, direction, anomaly_score, yoy_real_pct, yoy_real_change, actual_real, prior_real,
                        "Kaupandi", "Birgi", "Tegund"
-                FROM ({base_sql}) a
+                FROM anomalies_tmp
                 {where_sql}
                 ORDER BY (yoy_real_pct IS NULL) ASC, anomaly_score DESC, abs_change_real DESC
                 LIMIT ? OFFSET ?
@@ -832,11 +836,11 @@ def create_app() -> Flask:
                 row["year_totals"] = totals_map.get(key, [])
                 row["row_id"] = f"{i}:{row.get('year')}:{row.get('Kaupandi')}:{row.get('Birgi')}:{row.get('Tegund')}"
 
-            years = [str(int(r[0])) for r in con.execute(f"SELECT DISTINCT year FROM ({base_sql}) a ORDER BY year").fetchall()]
+            years = [str(int(r[0])) for r in con.execute("SELECT DISTINCT year FROM anomalies_tmp ORDER BY year").fetchall()]
             parent_values = [
                 r[0]
                 for r in con.execute(
-                    f'SELECT DISTINCT "{parent_col}" FROM ({base_sql}) a WHERE "{parent_col}" IS NOT NULL ORDER BY "{parent_col}" LIMIT 1500'
+                    f'SELECT DISTINCT "{parent_col}" FROM anomalies_tmp WHERE "{parent_col}" IS NOT NULL ORDER BY "{parent_col}" LIMIT 1500'
                 ).fetchall()
             ]
 
@@ -854,7 +858,7 @@ def create_app() -> Flask:
                     SUM(abs_change_real) AS abs_change_sum,
                     SUM(CASE WHEN yoy_real_change > 0 THEN ABS(yoy_real_change) ELSE 0 END) AS abs_change_increase,
                     SUM(CASE WHEN yoy_real_change < 0 THEN ABS(yoy_real_change) ELSE 0 END) AS abs_change_decrease
-                FROM ({base_sql}) a
+                FROM anomalies_tmp
                 {chart_where_sql}
                 GROUP BY year
                 ORDER BY year
@@ -919,6 +923,7 @@ def create_app() -> Flask:
 
         con = _open_data_connection(parquet_path)
         try:
+            _prepare_anomalies_table(con)
             year = request.args.get("year", "all")
             direction = request.args.get("direction", "all")
             parent_col = request.args.get("parent_col", "Tegund")
@@ -926,7 +931,6 @@ def create_app() -> Flask:
                 parent_col = "Tegund"
             parent_value = request.args.get("parent_value", "all")
 
-            base_sql = _anomaly_base_sql()
             where = []
             params: list = []
             if year != "all":
@@ -944,7 +948,7 @@ def create_app() -> Flask:
                 f"""
                 SELECT year, direction, anomaly_score, yoy_real_pct, yoy_real_change, actual_real, prior_real,
                        "Kaupandi", "Birgi", "Tegund"
-                FROM ({base_sql}) a
+                FROM anomalies_tmp
                 {where_sql}
                 ORDER BY (yoy_real_pct IS NULL) ASC, anomaly_score DESC, abs_change_real DESC
                 """,
