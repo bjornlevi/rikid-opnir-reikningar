@@ -8,6 +8,11 @@
   </head>
   <body>
     <header>
+      <div class="topnav">
+        <a class="active" href="{{ url_for('index') }}">Explore</a>
+        <a href="{{ url_for('analysis') }}">Analysis</a>
+        <a href="{{ url_for('anomalies') }}">Anomalies</a>
+      </div>
       <h1>Opnir reikningar</h1>
       <p class="subtitle">Filter by year, buyer, vendor, and type</p>
     </header>

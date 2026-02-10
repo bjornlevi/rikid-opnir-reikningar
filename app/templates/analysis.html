@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rikid Analysis</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  </head>
+  <body>
+    <header>
+      <div class="topnav">
+        <a href="{{ url_for('index') }}">Explore</a>
+        <a class="active" href="{{ url_for('analysis') }}">Analysis</a>
+        <a href="{{ url_for('anomalies') }}">Anomalies</a>
+      </div>
+      <h1>Analysis</h1>
+      <p class="subtitle">Breakdown and records for selected parent/child dimensions.</p>
+    </header>
+
+    {% if not data_loaded %}
+      <section class="notice">
+        <div>{{ error }}</div>
+      </section>
+    {% else %}
+      <div class="container">
+        <aside class="panel">
+          <form method="get" action="{{ url_for('analysis') }}" class="stack-form">
+            <label for="parent_type">Parent type</label>
+            <select id="parent_type" name="parent_type">
+              <option value="buyer" {% if parent_type == 'buyer' %}selected{% endif %}>Kaupandi</option>
+              <option value="vendor" {% if parent_type == 'vendor' %}selected{% endif %}>Birgi</option>
+              <option value="type" {% if parent_type == 'type' %}selected{% endif %}>Tegund</option>
+            </select>
+
+            <label for="parent_value">Parent value</label>
+            <select id="parent_value" name="parent_value">
+              {% for value in parent_options %}
+                <option value="{{ value }}" {% if value == parent_value %}selected{% endif %}>{{ value }}</option>
+              {% endfor %}
+            </select>
+
+            <label for="child_key">Child key</label>
+            <select id="child_key" name="child_key">
+              {% for key in child_keys %}
+                <option value="{{ key }}" {% if key == child_key %}selected{% endif %}>{{ key }}</option>
+              {% endfor %}
+            </select>
+
+            <label for="child_value">Child value (optional)</label>
+            <input id="child_value" name="child_value" value="{{ child_value }}" />
+
+            <button type="submit">Apply</button>
+          </form>
+
+          <div class="section-title">Years</div>
+          <div class="pill-grid">
+            {% for y in year_links %}
+              <a class="pill {% if y == analysis_year %}active{% endif %}" href="{{ build_analysis_url(base_params, analysis_year=y, page=1) }}">{{ 'All' if y == 'all' else y }}</a>
+            {% endfor %}
+          </div>
+
+          <div class="footer-link">
+            <a href="{{ url_for('analysis_export', parent_type=parent_type, parent_value=parent_value, child_key=child_key, child_value=child_value, analysis_year=analysis_year) }}">Download CSV</a>
+          </div>
+        </aside>
+
+        <section class="panel">
+          <div class="meta">
+            <div>Records: <strong>{{ total_records }}</strong></div>
+            <div>Page: <strong>{{ page }}</strong> / {{ total_pages }}</div>
+          </div>
+
+          <div class="section-title">Yearly totals</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Year</th>
+                  <th>Sum</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for i in range(yearly_labels|length) %}
+                  <tr>
+                    <td>{{ yearly_labels[i] }}</td>
+                    <td>{{ "{:,.0f}".format(yearly_values[i]).replace(",", ".") }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="section-title">Breakdown by {{ child_key }}</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>{{ child_key }}</th>
+                  <th>Rows</th>
+                  <th>Sum</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in breakdown_rows %}
+                  <tr>
+                    <td><a href="{{ build_analysis_url(base_params, child_value=row['child_value'], page=1) }}">{{ row["child_value"] }}</a></td>
+                    <td>{{ row["row_count_fmt"] }}</td>
+                    <td>{{ row["amount_sum_fmt"] }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="section-title">Rows</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  {% for col in record_columns %}
+                    <th>{{ col }}</th>
+                  {% endfor %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in record_rows %}
+                  <tr>
+                    {% for col in record_columns %}
+                      <td>{{ row[col] }}</td>
+                    {% endfor %}
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="pager">
+            {% if page > 1 %}
+              <a href="{{ build_analysis_url(base_params, page=1) }}">First</a>
+              <a href="{{ build_analysis_url(base_params, page=page-1) }}">Previous</a>
+            {% endif %}
+            {% if page < total_pages %}
+              <a href="{{ build_analysis_url(base_params, page=page+1) }}">Next</a>
+              <a href="{{ build_analysis_url(base_params, page=total_pages) }}">Last</a>
+            {% endif %}
+          </div>
+        </section>
+      </div>
+    {% endif %}
+  </body>
+</html>

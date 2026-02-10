@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rikid Anomalies</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  </head>
+  <body>
+    <header>
+      <div class="topnav">
+        <a href="{{ url_for('index') }}">Explore</a>
+        <a href="{{ url_for('analysis') }}">Analysis</a>
+        <a class="active" href="{{ url_for('anomalies') }}">Anomalies</a>
+      </div>
+      <h1>Anomalies</h1>
+      <p class="subtitle">Year-over-year outliers from grouped payment totals.</p>
+    </header>
+
+    {% if not data_loaded %}
+      <section class="notice">
+        <div>{{ error }}</div>
+      </section>
+    {% else %}
+      <div class="container">
+        <aside class="panel">
+          <form method="get" action="{{ url_for('anomalies') }}" class="stack-form">
+            <label for="year">Year</label>
+            <select id="year" name="year">
+              <option value="all" {% if year == 'all' %}selected{% endif %}>All</option>
+              {% for y in years %}
+                <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
+              {% endfor %}
+            </select>
+
+            <label for="direction">Direction</label>
+            <select id="direction" name="direction">
+              {% for d in directions %}
+                <option value="{{ d }}" {% if d == direction %}selected{% endif %}>{{ d }}</option>
+              {% endfor %}
+            </select>
+
+            <label for="parent_col">Group by</label>
+            <select id="parent_col" name="parent_col">
+              {% for c in parent_columns %}
+                <option value="{{ c }}" {% if c == parent_col %}selected{% endif %}>{{ c }}</option>
+              {% endfor %}
+            </select>
+
+            <label for="parent_value">Group value</label>
+            <select id="parent_value" name="parent_value">
+              <option value="all" {% if parent_value == 'all' %}selected{% endif %}>All</option>
+              {% for v in parent_values %}
+                <option value="{{ v }}" {% if v == parent_value %}selected{% endif %}>{{ v }}</option>
+              {% endfor %}
+            </select>
+
+            <button type="submit">Apply</button>
+          </form>
+
+          <div class="footer-link">
+            <a href="{{ url_for('anomalies_export', year=year, direction=direction, parent_col=parent_col, parent_value=parent_value) }}">Download CSV</a>
+          </div>
+        </aside>
+
+        <section class="panel">
+          <div class="meta">
+            <div>Rows: <strong>{{ total_records }}</strong></div>
+            <div>Page: <strong>{{ page }}</strong> / {{ total_pages }}</div>
+          </div>
+
+          <div class="section-title">Trend</div>
+          <div class="chart-wrap">
+            <canvas id="anomalyChart" class="chart"></canvas>
+          </div>
+
+          <div class="section-title">Yearly anomaly totals</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Year</th>
+                  <th>Count</th>
+                  <th>Abs change</th>
+                  <th>Increase abs change</th>
+                  <th>Decrease abs change</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for i in range(chart_labels|length) %}
+                  <tr>
+                    <td>{{ chart_labels[i] }}</td>
+                    <td>{{ chart_counts[i] }}</td>
+                    <td>{{ chart_abs_change[i] }}</td>
+                    <td>{{ chart_abs_increase[i] }}</td>
+                    <td>{{ chart_abs_decrease[i] }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="section-title">Anomaly rows</div>
+          <div class="table-wrap">
+            <table id="anomalies-table">
+              <thead>
+                <tr>
+                  <th class="sortable" data-type="number">Year</th>
+                  <th class="sortable" data-type="text">Direction</th>
+                  <th class="sortable" data-type="number">YoY %</th>
+                  <th class="sortable" data-type="number">YoY change</th>
+                  <th class="sortable" data-type="number">Actual</th>
+                  <th class="sortable" data-type="number">Prior</th>
+                  <th class="sortable" data-type="text">Kaupandi</th>
+                  <th class="sortable" data-type="text">Birgi</th>
+                  <th class="sortable" data-type="text">Tegund</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in rows %}
+                  <tr data-row-id="{{ row['row_id'] }}" class="anomaly-row">
+                    <td data-sort="{{ row['year'] }}">{{ row["year"] }}</td>
+                    <td data-sort="{{ row['direction'] }}">{{ row["direction"] }}</td>
+                    <td data-sort="{{ row['yoy_real_pct_sort'] }}">{{ row["yoy_real_pct_fmt"] }}</td>
+                    <td data-sort="{{ row['yoy_real_change'] or 0 }}">{{ row["yoy_real_change_fmt"] }}</td>
+                    <td data-sort="{{ row['actual_real'] or 0 }}">{{ row["actual_real_fmt"] }}</td>
+                    <td data-sort="{{ row['prior_real'] or 0 }}">{{ row["prior_real_fmt"] }}</td>
+                    <td data-sort="{{ row['Kaupandi'] }}">{{ row["Kaupandi"] }}</td>
+                    <td data-sort="{{ row['Birgi'] }}">{{ row["Birgi"] }}</td>
+                    <td data-sort="{{ row['Tegund'] }}">{{ row["Tegund"] }}</td>
+                  </tr>
+                  <tr class="anomaly-detail-row" data-detail-for="{{ row['row_id'] }}" hidden>
+                    <td colspan="9">
+                      <div class="yearly-dropdown">
+                        <div class="section-title">Sum per year</div>
+                        {% if row["year_totals"] %}
+                          <table class="mini-table">
+                            <thead>
+                              <tr>
+                                <th>Year</th>
+                                <th>Sum</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {% for item in row["year_totals"] %}
+                                <tr>
+                                  <td>{{ item["year"] }}</td>
+                                  <td>{{ item["amount_fmt"] }}</td>
+                                </tr>
+                              {% endfor %}
+                            </tbody>
+                          </table>
+                        {% else %}
+                          <div class="empty">No yearly sums</div>
+                        {% endif %}
+                      </div>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="pager">
+            {% if page > 1 %}
+              <a href="{{ build_anomalies_url(base_params, page=1) }}">First</a>
+              <a href="{{ build_anomalies_url(base_params, page=page-1) }}">Previous</a>
+            {% endif %}
+            {% if page < total_pages %}
+              <a href="{{ build_anomalies_url(base_params, page=page+1) }}">Next</a>
+              <a href="{{ build_anomalies_url(base_params, page=total_pages) }}">Last</a>
+            {% endif %}
+          </div>
+        </section>
+      </div>
+    {% endif %}
+    {% if data_loaded %}
+      <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+      <script>
+        const chartCtx = document.getElementById("anomalyChart");
+        if (chartCtx) {
+          new Chart(chartCtx, {
+            type: "bar",
+            data: {
+              labels: {{ chart_labels_json | safe }},
+              datasets: [
+                {
+                  type: "bar",
+                  label: "Anomaly count",
+                  data: {{ chart_counts_json | safe }},
+                  yAxisID: "y",
+                  backgroundColor: "rgba(37, 99, 235, 0.35)",
+                  borderColor: "#2563eb",
+                  borderWidth: 1
+                },
+                {
+                  type: "line",
+                  label: "Sum abs real change",
+                  data: {{ chart_abs_change_json | safe }},
+                  yAxisID: "y1",
+                  borderColor: "#0f766e",
+                  backgroundColor: "rgba(15, 118, 110, 0.12)",
+                  tension: 0.2,
+                  fill: false
+                },
+                {
+                  type: "line",
+                  label: "Increase abs real change",
+                  data: {{ chart_abs_increase_json | safe }},
+                  yAxisID: "y1",
+                  borderColor: "#15803d",
+                  backgroundColor: "rgba(21, 128, 61, 0.08)",
+                  tension: 0.2,
+                  fill: false
+                },
+                {
+                  type: "line",
+                  label: "Decrease abs real change",
+                  data: {{ chart_abs_decrease_json | safe }},
+                  yAxisID: "y1",
+                  borderColor: "#b91c1c",
+                  backgroundColor: "rgba(185, 28, 28, 0.08)",
+                  tension: 0.2,
+                  fill: false
+                }
+              ]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              scales: {
+                y: { beginAtZero: true, position: "left" },
+                y1: {
+                  beginAtZero: true,
+                  position: "right",
+                  grid: { drawOnChartArea: false },
+                  ticks: { callback: (v) => Number(v).toLocaleString("is-IS") }
+                }
+              }
+            }
+          });
+        }
+      </script>
+    {% endif %}
+    <script>
+      (function () {
+        const table = document.getElementById("anomalies-table");
+        if (!table) return;
+        const tbody = table.querySelector("tbody");
+        const headers = table.querySelectorAll("th.sortable");
+        const expanded = new Set();
+
+        function captureExpandedState() {
+          expanded.clear();
+          tbody.querySelectorAll("tr[data-row-id]").forEach((row) => {
+            const detail = tbody.querySelector(`tr[data-detail-for="${row.dataset.rowId}"]`);
+            if (detail && !detail.hidden) expanded.add(row.dataset.rowId);
+          });
+        }
+
+        function applyExpandedState() {
+          tbody.querySelectorAll("tr[data-row-id]").forEach((row) => {
+            const detail = tbody.querySelector(`tr[data-detail-for="${row.dataset.rowId}"]`);
+            if (!detail) return;
+            const isOpen = expanded.has(row.dataset.rowId);
+            detail.hidden = !isOpen;
+            row.classList.toggle("expanded", isOpen);
+          });
+        }
+
+        tbody.addEventListener("click", (event) => {
+          const row = event.target.closest("tr[data-row-id]");
+          if (!row) return;
+          if (event.target.closest("a, button, input, select, textarea")) return;
+          const detail = tbody.querySelector(`tr[data-detail-for="${row.dataset.rowId}"]`);
+          if (!row || !detail) return;
+          detail.hidden = !detail.hidden;
+          row.classList.toggle("expanded", !detail.hidden);
+          if (detail.hidden) expanded.delete(row.dataset.rowId);
+          else expanded.add(row.dataset.rowId);
+        });
+
+        headers.forEach((header, index) => {
+          header.addEventListener("click", () => {
+            captureExpandedState();
+            const type = header.dataset.type || "text";
+            const current = header.dataset.dir || "desc";
+            const next = current === "asc" ? "desc" : "asc";
+            headers.forEach((h) => {
+              h.dataset.dir = "";
+              h.classList.remove("sorted-asc", "sorted-desc");
+            });
+            header.dataset.dir = next;
+            header.classList.add(next === "asc" ? "sorted-asc" : "sorted-desc");
+
+            const pairs = Array.from(tbody.querySelectorAll("tr[data-row-id]")).map((row) => {
+              const detail = tbody.querySelector(`tr[data-detail-for="${row.dataset.rowId}"]`);
+              return { row, detail };
+            });
+            pairs.sort((a, b) => {
+              const aCell = a.row.children[index];
+              const bCell = b.row.children[index];
+              const aRaw = (aCell && aCell.dataset.sort) || (aCell && aCell.textContent) || "";
+              const bRaw = (bCell && bCell.dataset.sort) || (bCell && bCell.textContent) || "";
+              let cmp = 0;
+              if (type === "number") {
+                cmp = Number(aRaw) - Number(bRaw);
+              } else {
+                cmp = String(aRaw).localeCompare(String(bRaw), undefined, { sensitivity: "base" });
+              }
+              return next === "asc" ? cmp : -cmp;
+            });
+            pairs.forEach((pair) => {
+              tbody.appendChild(pair.row);
+              if (pair.detail) tbody.appendChild(pair.detail);
+            });
+            applyExpandedState();
+          });
+        });
+      })();
+    </script>
+  </body>
+</html>
