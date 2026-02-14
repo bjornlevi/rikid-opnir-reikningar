@@ -15,6 +15,10 @@
       </div>
       <h1>Opnir reikningar</h1>
       <p class="subtitle">Filter by year, buyer, vendor, and type</p>
+      <nav class="top-nav">
+        <a href="{{ url_for('index') }}" class="active">Explorer</a>
+        <a href="{{ url_for('reports') }}">Reports</a>
+      </nav>
     </header>
 
     {% if missing %}

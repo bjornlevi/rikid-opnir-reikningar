@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Opnir reikningar - Reports</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  </head>
+  <body>
+    <header>
+      <h1>Opnir reikningar</h1>
+      <p class="subtitle">Reports: totals by Tegund and yearly development</p>
+      <nav class="top-nav">
+        <a href="{{ url_for('index') }}">Explorer</a>
+        <a href="{{ url_for('reports') }}" class="active">Reports</a>
+      </nav>
+    </header>
+
+    {% if not data_loaded %}
+      <section class="notice"><p>{{ error }}</p></section>
+    {% else %}
+      {% if selected_tegund %}
+        <section class="notice">
+          <p>Selected tegund: <strong>{{ selected_tegund }}</strong></p>
+        </section>
+      {% endif %}
+      <div class="container">
+        <aside class="panel">
+          <div class="section-title">Kaupandi</div>
+          <div class="pill-grid">
+            <a class="pill {% if not buyer %}active{% endif %}" href="{{ build_reports_url(base_params, buyer='') }}">All</a>
+            {% for row in buyer_rows[:120] %}
+              <a class="pill {% if row['buyer'] == buyer %}active{% endif %}" href="{{ build_reports_url(base_params, buyer=row['buyer']) }}">
+                {{ row['buyer'] }}
+              </a>
+            {% endfor %}
+          </div>
+        </aside>
+
+        <section class="panel">
+          <div class="section-title">Scope</div>
+          <p>{{ scope_label }}</p>
+
+          <div class="section-title">Tegund development by year</div>
+          {% if yearly_rows %}
+            <div class="chart-wrap"><canvas id="yearlyChart" class="chart"></canvas></div>
+          {% else %}
+            <div class="notice">No yearly data for this scope.</div>
+          {% endif %}
+
+          <div class="section-title">Year x Tegund table</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Year</th>
+                  <th>Tegund</th>
+                  <th class="num">Total sum</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in yearly_rows %}
+                  <tr>
+                    <td>{{ row['year'] }}</td>
+                    <td>{{ row['tegund'] }}</td>
+                    <td class="num">{{ row['total_sum_fmt'] }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="section-title">Tegund totals</div>
+          <div class="section-title">Year filter (totals table)</div>
+          <div class="pill-grid">
+            {% for y in report_year_links %}
+              <a class="pill {% if y == report_year %}active{% endif %}" href="{{ build_reports_url(base_params, report_year=y) }}">
+                {{ 'All' if y == 'all' else y }}
+              </a>
+            {% endfor %}
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tegund</th>
+                  <th class="num">Total sum</th>
+                  <th class="num">Positive sum</th>
+                  <th class="num">Negative sum</th>
+                  <th class="num">Rows</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in tegund_rows %}
+                  <tr>
+                    <td>
+                      <a href="{{ build_reports_url(base_params, tegund=('' if selected_tegund == row['tegund'] else row['tegund'])) }}">
+                        {{ row['tegund'] }}
+                      </a>
+                    </td>
+                    <td class="num">{{ row['total_sum_fmt'] }}</td>
+                    <td class="num">{{ row['positive_sum_fmt'] }}</td>
+                    <td class="num">{{ row['negative_sum_fmt'] }}</td>
+                    <td class="num">{{ row['row_count'] }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td>Total</td>
+                  <td class="num">{{ tegund_total_row['total_sum_fmt'] }}</td>
+                  <td class="num">{{ tegund_total_row['positive_sum_fmt'] }}</td>
+                  <td class="num">{{ tegund_total_row['negative_sum_fmt'] }}</td>
+                  <td class="num">{{ tegund_total_row['row_count'] }}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </section>
+      </div>
+    {% endif %}
+
+    {% if data_loaded and yearly_rows %}
+      <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+      <script>
+        new Chart(document.getElementById("yearlyChart"), {
+          type: "line",
+          data: {
+            labels: {{ yearly_labels_json | safe }},
+            datasets: {{ chart_datasets_json | safe }},
+          },
+          options: {
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            plugins: { legend: { position: "bottom" } },
+          },
+        });
+      </script>
+    {% endif %}
+  </body>
+</html>

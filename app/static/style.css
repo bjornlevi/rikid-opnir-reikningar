@@ -34,13 +34,15 @@ h1 {
   color: var(--muted);
 }
 
-.topnav {
+.topnav,
+.top-nav {
   display: flex;
   gap: 10px;
   margin-bottom: 10px;
 }
 
-.topnav a {
+.topnav a,
+.top-nav a {
   display: inline-flex;
   align-items: center;
   padding: 6px 10px;
@@ -52,7 +54,8 @@ h1 {
   text-decoration: none;
 }
 
-.topnav a.active {
+.topnav a.active,
+.top-nav a.active {
   background: var(--accent);
   color: #fff;
   border-color: var(--accent);
@@ -211,6 +214,11 @@ td {
   white-space: nowrap;
 }
 
+th.num,
+td.num {
+  text-align: right;
+}
+
 th {
   position: sticky;
   top: 0;
@@ -232,6 +240,11 @@ th.sorted-asc::after {
 
 th.sorted-desc::after {
   content: "  v";
+}
+
+tfoot td {
+  font-weight: 700;
+  background: #f8fafc;
 }
 
 .pager {
