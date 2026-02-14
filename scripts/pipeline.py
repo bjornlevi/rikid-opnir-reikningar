@@ -9,6 +9,7 @@ import datetime as dt
 import os
 import sys
 import zipfile
+import builtins
 from pathlib import Path
 from typing import Iterable, Tuple
 
@@ -88,15 +89,39 @@ def is_html(sample: str) -> bool:
     return trimmed.startswith("<!doctype") or trimmed.startswith("<html")
 
 
-def xlsx_to_csv(input_path: Path, output_path: Path) -> bool:
+def _import_openpyxl_robust():
     try:
         import openpyxl
         from openpyxl.utils.datetime import from_excel
-    except Exception as exc:
-        raise RuntimeError(
-            "openpyxl is required to read .xlsx files when DuckDB Excel extension is unavailable. "
-            "Install it with: pip install openpyxl"
-        ) from exc
+        return openpyxl, from_excel
+    except Exception as first_exc:
+        # openpyxl optionally imports numpy; if numpy is installed but incompatible with CPU,
+        # retry while forcing numpy imports to behave as missing.
+        orig_import = builtins.__import__
+
+        def _blocked_numpy_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "numpy" or name.startswith("numpy."):
+                raise ImportError("numpy blocked for openpyxl import")
+            return orig_import(name, globals, locals, fromlist, level)
+
+        builtins.__import__ = _blocked_numpy_import
+        try:
+            import importlib
+
+            openpyxl = importlib.import_module("openpyxl")
+            from_excel = importlib.import_module("openpyxl.utils.datetime").from_excel
+            return openpyxl, from_excel
+        except Exception as exc:
+            raise RuntimeError(
+                "openpyxl is required to read .xlsx files when DuckDB Excel extension is unavailable. "
+                "Install it with: pip install openpyxl"
+            ) from (exc if exc else first_exc)
+        finally:
+            builtins.__import__ = orig_import
+
+
+def xlsx_to_csv(input_path: Path, output_path: Path) -> bool:
+    openpyxl, from_excel = _import_openpyxl_robust()
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wb = openpyxl.load_workbook(filename=str(input_path), read_only=False, data_only=False)

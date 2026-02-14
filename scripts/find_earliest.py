@@ -8,6 +8,7 @@ import calendar
 import datetime as dt
 import os
 import zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import requests
@@ -113,35 +114,39 @@ def has_data(path: Path) -> bool:
                     return False
                 if line.strip():
                     return True
-    if suffix in {".xlsx", ".xls"}:
+    if suffix == ".xlsx":
+        # Lightweight check without openpyxl/numpy: count non-empty rows in worksheet XML.
         try:
-            import openpyxl
-        except Exception as exc:
-            raise RuntimeError(
-                "openpyxl is required to read .xlsx files when DuckDB Excel extension is unavailable. "
-                "Install it with: pip install openpyxl"
-            ) from exc
-        wb = openpyxl.load_workbook(filename=str(path), read_only=False, data_only=False)
-        try:
-            for sheet in wb.worksheets:
-                header_index = None
-                for i, row in enumerate(sheet.iter_rows(values_only=False)):
-                    has_any = False
-                    for cell in row:
-                        if cell.value not in (None, ""):
-                            has_any = True
-                            break
-                    if header_index is None:
-                        if has_any:
-                            header_index = i
-                        continue
-                    if i == header_index:
-                        continue
-                    if has_any:
-                        return True
+            with zipfile.ZipFile(path) as zf:
+                sheet_files = [
+                    name
+                    for name in zf.namelist()
+                    if name.startswith("xl/worksheets/") and name.endswith(".xml")
+                ]
+                for sheet_name in sheet_files:
+                    non_empty_rows = 0
+                    with zf.open(sheet_name) as fh:
+                        for event, elem in ET.iterparse(fh, events=("end",)):
+                            if not elem.tag.endswith("row"):
+                                continue
+                            has_any = False
+                            for child in elem.iter():
+                                tag = child.tag
+                                if tag.endswith("v") or tag.endswith("t") or tag.endswith("f"):
+                                    if child.text and child.text.strip():
+                                        has_any = True
+                                        break
+                            if has_any:
+                                non_empty_rows += 1
+                                if non_empty_rows >= 2:
+                                    return True
+                            elem.clear()
             return False
-        finally:
-            wb.close()
+        except zipfile.BadZipFile:
+            return False
+    if suffix == ".xls":
+        # Legacy format: fallback to non-empty file check.
+        return path.stat().st_size > 0
     if suffix == ".json":
         with path.open("r", encoding="utf-8", errors="ignore") as f:
             data = f.read(4096).lstrip()
