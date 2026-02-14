@@ -8,11 +8,12 @@
   </head>
   <body>
     <header>
-      <div class="topnav">
-        <a href="{{ url_for('index') }}">Explore</a>
+      <nav class="top-nav">
+        <a href="{{ url_for('index') }}">Explorer</a>
         <a class="active" href="{{ url_for('analysis') }}">Analysis</a>
         <a href="{{ url_for('anomalies') }}">Anomalies</a>
-      </div>
+        <a href="{{ url_for('reports') }}">Reports</a>
+      </nav>
       <h1>Analysis</h1>
       <p class="subtitle">Breakdown and records for selected parent/child dimensions.</p>
     </header>
