@@ -864,6 +864,10 @@ def create_app() -> Flask:
         if not parquet_path.exists():
             return render_template("reports.html", data_loaded=False, error=f"No parquet file found at {parquet_path}.")
 
+        mode = request.args.get("mode", "by_kaupandi").strip()
+        if mode not in {"by_kaupandi", "by_tegund"}:
+            mode = "by_kaupandi"
+
         buyer = request.args.get("buyer", "").strip()
         selected_tegund = request.args.get("tegund", "").strip()
         report_year = request.args.get("report_year", "all").strip()
@@ -876,11 +880,15 @@ def create_app() -> Flask:
         con = _open_data_connection(parquet_path)
         try:
             columns = [r[0] for r in con.execute("DESCRIBE data").fetchall()]
-            required = {"Kaupandi", "Tegund", "Upphæð línu", "Dags.greiðslu"}
-            if not required.issubset(set(columns)):
+            col_set = set(columns)
+            date_col = next((c for c in ["Dags.greiðslu", "Dags.greiÃ°slu", "Dags.grei?slu"] if c in col_set), None)
+            amount_col = next((c for c in ["Upphæð línu", "UpphÃ¦Ã° lÃ­nu", "Upph?? l?nu"] if c in col_set), None)
+            required = {"Kaupandi", "Tegund"}
+            if not required.issubset(col_set) or not date_col or not amount_col:
                 return render_template("reports.html", data_loaded=False, error="Dataset is missing required columns for reports.")
 
-            numeric_expr = 'TRY_CAST("Upphæð línu" AS DOUBLE)'
+            numeric_expr = f'TRY_CAST("{amount_col}" AS DOUBLE)'
+
             buyer_df = con.execute(
                 f"""
                 SELECT
@@ -893,33 +901,53 @@ def create_app() -> Flask:
                 ORDER BY total_sum DESC NULLS LAST
                 """
             ).fetchdf()
-
             buyer_rows = buyer_df.to_dict(orient="records")
             for row in buyer_rows:
                 row["total_sum_fmt"] = _format_number(row.get("total_sum"))
-
             buyer_total_row = {
                 "total_sum_fmt": _format_number(sum(float(r.get("total_sum") or 0) for r in buyer_rows)),
                 "row_count": int(sum(int(r.get("row_count") or 0) for r in buyer_rows)),
             }
 
+            tegund_opts_df = con.execute(
+                f"""
+                SELECT
+                    COALESCE("Tegund", '(empty)') AS tegund,
+                    SUM({numeric_expr}) AS total_sum,
+                    COUNT(*) AS row_count
+                FROM data
+                GROUP BY COALESCE("Tegund", '(empty)')
+                ORDER BY total_sum DESC NULLS LAST, tegund
+                """
+            ).fetchdf()
+            tegund_options = tegund_opts_df.to_dict(orient="records")
+            tegund_option_names = [str(t) for t in tegund_opts_df["tegund"].tolist()] if not tegund_opts_df.empty else []
+
             buyer_options = set(buyer_df["buyer"].astype(str)) if not buyer_df.empty else set()
             if buyer and buyer not in buyer_options:
                 buyer = ""
+            if selected_tegund and selected_tegund not in set(tegund_option_names):
+                selected_tegund = ""
 
             scope_clauses = []
             scope_params: list = []
-            if buyer:
+            if mode == "by_kaupandi" and buyer:
                 scope_clauses.append('"Kaupandi" = ?')
                 scope_params.append(buyer)
+            if mode == "by_tegund" and selected_tegund:
+                scope_clauses.append("COALESCE(\"Tegund\", '(empty)') = ?")
+                scope_params.append(selected_tegund)
             scope_where = f"WHERE {' AND '.join(scope_clauses)}" if scope_clauses else ""
-            scope_label = f"Kaupandi: {buyer}" if buyer else "All kaupandi"
+            if mode == "by_kaupandi":
+                scope_label = f"Kaupandi: {buyer}" if buyer else "All kaupandi"
+            else:
+                scope_label = f"Tegund: {selected_tegund}" if selected_tegund else "All tegund"
 
             years_df = con.execute(
                 f"""
-                SELECT DISTINCT CAST(YEAR("Dags.greiðslu") AS INTEGER) AS year
+                SELECT DISTINCT CAST(YEAR("{date_col}") AS INTEGER) AS year
                 FROM data
-                {scope_where}{' AND ' if scope_where else 'WHERE '}"Dags.greiðslu" IS NOT NULL
+                {scope_where}{' AND ' if scope_where else 'WHERE '}"{date_col}" IS NOT NULL
                 ORDER BY year
                 """,
                 scope_params,
@@ -929,60 +957,84 @@ def create_app() -> Flask:
             totals_scope_clauses = list(scope_clauses)
             totals_scope_params = list(scope_params)
             if report_year_int is not None:
-                totals_scope_clauses.append('CAST(YEAR("Dags.greiðslu") AS INTEGER) = ?')
+                totals_scope_clauses.append(f'CAST(YEAR("{date_col}") AS INTEGER) = ?')
                 totals_scope_params.append(report_year_int)
             totals_scope_where = f"WHERE {' AND '.join(totals_scope_clauses)}" if totals_scope_clauses else ""
 
-            tegund_df = con.execute(
-                f"""
-                SELECT
-                    COALESCE("Tegund", '(empty)') AS tegund,
-                    SUM({numeric_expr}) AS total_sum,
-                    SUM(CASE WHEN {numeric_expr} > 0 THEN {numeric_expr} ELSE 0 END) AS positive_sum,
-                    SUM(CASE WHEN {numeric_expr} < 0 THEN {numeric_expr} ELSE 0 END) AS negative_sum,
-                    COUNT(*) AS row_count
-                FROM data
-                {totals_scope_where}
-                GROUP BY COALESCE("Tegund", '(empty)')
-                ORDER BY total_sum DESC NULLS LAST, tegund
-                """,
-                totals_scope_params,
-            ).fetchdf()
-            tegund_rows = tegund_df.to_dict(orient="records")
-            tegund_names = [str(t) for t in tegund_df["tegund"].tolist()] if not tegund_df.empty else []
-            if selected_tegund and selected_tegund not in tegund_names:
-                selected_tegund = ""
-            for row in tegund_rows:
+            if mode == "by_kaupandi":
+                totals_df = con.execute(
+                    f"""
+                    SELECT
+                        COALESCE("Tegund", '(empty)') AS group_label,
+                        SUM({numeric_expr}) AS total_sum,
+                        SUM(CASE WHEN {numeric_expr} > 0 THEN {numeric_expr} ELSE 0 END) AS positive_sum,
+                        SUM(CASE WHEN {numeric_expr} < 0 THEN {numeric_expr} ELSE 0 END) AS negative_sum,
+                        COUNT(*) AS row_count
+                    FROM data
+                    {totals_scope_where}
+                    GROUP BY COALESCE("Tegund", '(empty)')
+                    ORDER BY total_sum DESC NULLS LAST, group_label
+                    """,
+                    totals_scope_params,
+                ).fetchdf()
+                totals_title = "Tegund totals"
+                totals_first_col = "Tegund"
+            else:
+                totals_df = con.execute(
+                    f"""
+                    SELECT
+                        "Kaupandi" AS group_label,
+                        SUM({numeric_expr}) AS total_sum,
+                        SUM(CASE WHEN {numeric_expr} > 0 THEN {numeric_expr} ELSE 0 END) AS positive_sum,
+                        SUM(CASE WHEN {numeric_expr} < 0 THEN {numeric_expr} ELSE 0 END) AS negative_sum,
+                        COUNT(*) AS row_count
+                    FROM data
+                    {totals_scope_where}
+                    GROUP BY "Kaupandi"
+                    ORDER BY total_sum DESC NULLS LAST, group_label
+                    """,
+                    totals_scope_params,
+                ).fetchdf()
+                totals_title = "Kaupandi totals"
+                totals_first_col = "Kaupandi"
+
+            totals_rows = totals_df.to_dict(orient="records")
+            for row in totals_rows:
                 row["total_sum_fmt"] = _format_number(row.get("total_sum"))
                 row["positive_sum_fmt"] = _format_number(row.get("positive_sum"))
                 row["negative_sum_fmt"] = _format_number(row.get("negative_sum"))
-            tegund_total_row = {
-                "total_sum_fmt": _format_number(sum(float(r.get("total_sum") or 0) for r in tegund_rows)),
-                "positive_sum_fmt": _format_number(sum(float(r.get("positive_sum") or 0) for r in tegund_rows)),
-                "negative_sum_fmt": _format_number(sum(float(r.get("negative_sum") or 0) for r in tegund_rows)),
-                "row_count": int(sum(int(r.get("row_count") or 0) for r in tegund_rows)),
+            totals_total_row = {
+                "total_sum_fmt": _format_number(sum(float(r.get("total_sum") or 0) for r in totals_rows)),
+                "positive_sum_fmt": _format_number(sum(float(r.get("positive_sum") or 0) for r in totals_rows)),
+                "negative_sum_fmt": _format_number(sum(float(r.get("negative_sum") or 0) for r in totals_rows)),
+                "row_count": int(sum(int(r.get("row_count") or 0) for r in totals_rows)),
             }
 
             yearly_scope_clauses = list(scope_clauses)
             yearly_scope_params = list(scope_params)
-            if selected_tegund:
-                yearly_scope_clauses.append('COALESCE("Tegund", \'(empty)\') = ?')
+            if mode == "by_kaupandi" and selected_tegund:
+                yearly_scope_clauses.append("COALESCE(\"Tegund\", '(empty)') = ?")
                 yearly_scope_params.append(selected_tegund)
+            if mode == "by_tegund" and buyer:
+                yearly_scope_clauses.append('"Kaupandi" = ?')
+                yearly_scope_params.append(buyer)
             yearly_scope_where = (
-                f'WHERE {" AND ".join(yearly_scope_clauses)} AND "Dags.greiðslu" IS NOT NULL'
+                f'WHERE {" AND ".join(yearly_scope_clauses)} AND "{date_col}" IS NOT NULL'
                 if yearly_scope_clauses
-                else 'WHERE "Dags.greiðslu" IS NOT NULL'
+                else f'WHERE "{date_col}" IS NOT NULL'
             )
+
+            series_col = "COALESCE(\"Tegund\", '(empty)')" if mode == "by_kaupandi" else '"Kaupandi"'
             yearly_df = con.execute(
                 f"""
                 SELECT
-                    CAST(YEAR("Dags.greiðslu") AS INTEGER) AS year,
-                    COALESCE("Tegund", '(empty)') AS tegund,
+                    CAST(YEAR("{date_col}") AS INTEGER) AS year,
+                    {series_col} AS series_name,
                     SUM({numeric_expr}) AS total_sum
                 FROM data
                 {yearly_scope_where}
-                GROUP BY CAST(YEAR("Dags.greiðslu") AS INTEGER), COALESCE("Tegund", '(empty)')
-                ORDER BY year, tegund
+                GROUP BY CAST(YEAR("{date_col}") AS INTEGER), {series_col}
+                ORDER BY year, series_name
                 """,
                 yearly_scope_params,
             ).fetchdf()
@@ -991,7 +1043,7 @@ def create_app() -> Flask:
             value_map: dict[tuple[int, str], float] = {}
             if not yearly_df.empty:
                 for row in yearly_df.to_dict(orient="records"):
-                    value_map[(int(row["year"]), str(row["tegund"]))] = float(row.get("total_sum") or 0)
+                    value_map[(int(row["year"]), str(row["series_name"]))] = float(row.get("total_sum") or 0)
 
             yearly_rows = []
             if not yearly_df.empty:
@@ -1000,11 +1052,12 @@ def create_app() -> Flask:
                     yearly_rows.append(
                         {
                             "year": int(row["year"]),
-                            "tegund": str(row["tegund"]),
+                            "series_name": str(row["series_name"]),
                             "total_sum_fmt": _format_number(value),
                         }
                     )
 
+            series_names = [str(s) for s in sorted(set(yearly_df["series_name"].astype(str).tolist()))] if not yearly_df.empty else []
             palette = [
                 "#2563eb",
                 "#16a34a",
@@ -1018,13 +1071,12 @@ def create_app() -> Flask:
                 "#d946ef",
             ]
             chart_datasets = []
-            chart_tegund_names = [selected_tegund] if selected_tegund else tegund_names[:12]
-            for idx, tegund in enumerate(chart_tegund_names):
+            for idx, name in enumerate(series_names[:12]):
                 color = palette[idx % len(palette)]
                 chart_datasets.append(
                     {
-                        "label": tegund,
-                        "data": [value_map.get((year, tegund), 0.0) for year in year_values],
+                        "label": name,
+                        "data": [value_map.get((year, name), 0.0) for year in year_values],
                         "borderColor": color,
                         "backgroundColor": color,
                         "fill": False,
@@ -1032,16 +1084,25 @@ def create_app() -> Flask:
                     }
                 )
 
-            base_params = {"buyer": buyer, "report_year": report_year, "tegund": selected_tegund}
+            base_params = {
+                "mode": mode,
+                "buyer": buyer,
+                "report_year": report_year,
+                "tegund": selected_tegund,
+            }
             return render_template(
                 "reports.html",
                 data_loaded=True,
+                mode=mode,
                 buyer=buyer,
                 selected_tegund=selected_tegund,
                 buyer_rows=buyer_rows,
                 buyer_total_row=buyer_total_row,
-                tegund_rows=tegund_rows,
-                tegund_total_row=tegund_total_row,
+                tegund_options=tegund_options,
+                totals_rows=totals_rows,
+                totals_total_row=totals_total_row,
+                totals_title=totals_title,
+                totals_first_col=totals_first_col,
                 yearly_rows=yearly_rows,
                 report_year=report_year,
                 report_year_links=["all"] + report_year_links,
@@ -1053,6 +1114,7 @@ def create_app() -> Flask:
             )
         finally:
             con.close()
+
 
     return app
 

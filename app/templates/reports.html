@@ -9,7 +9,7 @@
   <body>
     <header>
       <h1>Opnir reikningar</h1>
-      <p class="subtitle">Reports: totals by Tegund and yearly development</p>
+      <p class="subtitle">Reports: flip between Kaupandi and Tegund views</p>
       <nav class="top-nav">
         <a href="{{ url_for('index') }}">Explorer</a>
         <a href="{{ url_for('reports') }}" class="active">Reports</a>
@@ -26,20 +26,39 @@
       {% endif %}
       <div class="container">
         <aside class="panel">
-          <div class="section-title">Kaupandi</div>
+          <div class="section-title">Mode</div>
           <div class="pill-grid">
-            <a class="pill {% if not buyer %}active{% endif %}" href="{{ build_reports_url(base_params, buyer='') }}">All</a>
-            {% for row in buyer_rows[:120] %}
-              <a class="pill {% if row['buyer'] == buyer %}active{% endif %}" href="{{ build_reports_url(base_params, buyer=row['buyer']) }}">
-                {{ row['buyer'] }}
-              </a>
-            {% endfor %}
+            <a class="pill {% if mode == 'by_kaupandi' %}active{% endif %}" href="{{ build_reports_url(base_params, mode='by_kaupandi') }}">By kaupandi</a>
+            <a class="pill {% if mode == 'by_tegund' %}active{% endif %}" href="{{ build_reports_url(base_params, mode='by_tegund') }}">By tegund</a>
           </div>
+
+          {% if mode == 'by_kaupandi' %}
+            <div class="section-title">Kaupandi</div>
+            <div class="pill-grid">
+              <a class="pill {% if not buyer %}active{% endif %}" href="{{ build_reports_url(base_params, buyer='') }}">All</a>
+              {% for row in buyer_rows[:120] %}
+                <a class="pill {% if row['buyer'] == buyer %}active{% endif %}" href="{{ build_reports_url(base_params, buyer=row['buyer']) }}">
+                  {{ row['buyer'] }}
+                </a>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="section-title">Tegund</div>
+            <div class="pill-grid">
+              <a class="pill {% if not selected_tegund %}active{% endif %}" href="{{ build_reports_url(base_params, tegund='') }}">All</a>
+              {% for row in tegund_options[:120] %}
+                <a class="pill {% if row['tegund'] == selected_tegund %}active{% endif %}" href="{{ build_reports_url(base_params, tegund=row['tegund']) }}">
+                  {{ row['tegund'] }}
+                </a>
+              {% endfor %}
+            </div>
+          {% endif %}
         </aside>
 
         <section class="panel">
           <div class="section-title">Scope</div>
           <p>{{ scope_label }}</p>
+
           <div class="section-title">Year filter (totals table)</div>
           <div class="pill-grid">
             {% for y in report_year_links %}
@@ -49,19 +68,19 @@
             {% endfor %}
           </div>
 
-          <div class="section-title">Tegund development by year</div>
+          <div class="section-title">Development by year</div>
           {% if yearly_rows %}
             <div class="chart-wrap"><canvas id="yearlyChart" class="chart"></canvas></div>
           {% else %}
             <div class="notice">No yearly data for this scope.</div>
           {% endif %}
 
-          <div class="section-title">Tegund totals</div>
+          <div class="section-title">{{ totals_title }}</div>
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Tegund</th>
+                  <th>{{ totals_first_col }}</th>
                   <th class="num">Total sum</th>
                   <th class="num">Positive sum</th>
                   <th class="num">Negative sum</th>
@@ -69,12 +88,14 @@
                 </tr>
               </thead>
               <tbody>
-                {% for row in tegund_rows %}
+                {% for row in totals_rows %}
                   <tr>
                     <td>
-                      <a href="{{ build_reports_url(base_params, tegund=('' if selected_tegund == row['tegund'] else row['tegund'])) }}">
-                        {{ row['tegund'] }}
-                      </a>
+                      {% if mode == 'by_kaupandi' %}
+                        <a href="{{ build_reports_url(base_params, tegund=('' if selected_tegund == row['group_label'] else row['group_label'])) }}">{{ row['group_label'] }}</a>
+                      {% else %}
+                        <a href="{{ build_reports_url(base_params, buyer=('' if buyer == row['group_label'] else row['group_label'])) }}">{{ row['group_label'] }}</a>
+                      {% endif %}
                     </td>
                     <td class="num">{{ row['total_sum_fmt'] }}</td>
                     <td class="num">{{ row['positive_sum_fmt'] }}</td>
@@ -86,10 +107,10 @@
               <tfoot>
                 <tr>
                   <td>Total</td>
-                  <td class="num">{{ tegund_total_row['total_sum_fmt'] }}</td>
-                  <td class="num">{{ tegund_total_row['positive_sum_fmt'] }}</td>
-                  <td class="num">{{ tegund_total_row['negative_sum_fmt'] }}</td>
-                  <td class="num">{{ tegund_total_row['row_count'] }}</td>
+                  <td class="num">{{ totals_total_row['total_sum_fmt'] }}</td>
+                  <td class="num">{{ totals_total_row['positive_sum_fmt'] }}</td>
+                  <td class="num">{{ totals_total_row['negative_sum_fmt'] }}</td>
+                  <td class="num">{{ totals_total_row['row_count'] }}</td>
                 </tr>
               </tfoot>
             </table>
