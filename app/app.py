@@ -876,11 +876,11 @@ def create_app() -> Flask:
         con = _open_data_connection(parquet_path)
         try:
             columns = [r[0] for r in con.execute("DESCRIBE data").fetchall()]
-            required = {"Kaupandi", "Tegund", "UpphÃ¦Ã° lÃ­nu", "Dags.greiÃ°slu"}
+            required = {"Kaupandi", "Tegund", "Upphæð línu", "Dags.greiðslu"}
             if not required.issubset(set(columns)):
                 return render_template("reports.html", data_loaded=False, error="Dataset is missing required columns for reports.")
 
-            numeric_expr = 'TRY_CAST("UpphÃ¦Ã° lÃ­nu" AS DOUBLE)'
+            numeric_expr = 'TRY_CAST("Upphæð línu" AS DOUBLE)'
             buyer_df = con.execute(
                 f"""
                 SELECT
@@ -917,9 +917,9 @@ def create_app() -> Flask:
 
             years_df = con.execute(
                 f"""
-                SELECT DISTINCT CAST(YEAR("Dags.greiÃ°slu") AS INTEGER) AS year
+                SELECT DISTINCT CAST(YEAR("Dags.greiðslu") AS INTEGER) AS year
                 FROM data
-                {scope_where}{' AND ' if scope_where else 'WHERE '}"Dags.greiÃ°slu" IS NOT NULL
+                {scope_where}{' AND ' if scope_where else 'WHERE '}"Dags.greiðslu" IS NOT NULL
                 ORDER BY year
                 """,
                 scope_params,
@@ -929,7 +929,7 @@ def create_app() -> Flask:
             totals_scope_clauses = list(scope_clauses)
             totals_scope_params = list(scope_params)
             if report_year_int is not None:
-                totals_scope_clauses.append('CAST(YEAR("Dags.greiÃ°slu") AS INTEGER) = ?')
+                totals_scope_clauses.append('CAST(YEAR("Dags.greiðslu") AS INTEGER) = ?')
                 totals_scope_params.append(report_year_int)
             totals_scope_where = f"WHERE {' AND '.join(totals_scope_clauses)}" if totals_scope_clauses else ""
 
@@ -969,19 +969,19 @@ def create_app() -> Flask:
                 yearly_scope_clauses.append('COALESCE("Tegund", \'(empty)\') = ?')
                 yearly_scope_params.append(selected_tegund)
             yearly_scope_where = (
-                f'WHERE {" AND ".join(yearly_scope_clauses)} AND "Dags.greiÃ°slu" IS NOT NULL'
+                f'WHERE {" AND ".join(yearly_scope_clauses)} AND "Dags.greiðslu" IS NOT NULL'
                 if yearly_scope_clauses
-                else 'WHERE "Dags.greiÃ°slu" IS NOT NULL'
+                else 'WHERE "Dags.greiðslu" IS NOT NULL'
             )
             yearly_df = con.execute(
                 f"""
                 SELECT
-                    CAST(YEAR("Dags.greiÃ°slu") AS INTEGER) AS year,
+                    CAST(YEAR("Dags.greiðslu") AS INTEGER) AS year,
                     COALESCE("Tegund", '(empty)') AS tegund,
                     SUM({numeric_expr}) AS total_sum
                 FROM data
                 {yearly_scope_where}
-                GROUP BY CAST(YEAR("Dags.greiÃ°slu") AS INTEGER), COALESCE("Tegund", '(empty)')
+                GROUP BY CAST(YEAR("Dags.greiðslu") AS INTEGER), COALESCE("Tegund", '(empty)')
                 ORDER BY year, tegund
                 """,
                 yearly_scope_params,

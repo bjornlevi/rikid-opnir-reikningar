@@ -40,37 +40,6 @@
         <section class="panel">
           <div class="section-title">Scope</div>
           <p>{{ scope_label }}</p>
-
-          <div class="section-title">Tegund development by year</div>
-          {% if yearly_rows %}
-            <div class="chart-wrap"><canvas id="yearlyChart" class="chart"></canvas></div>
-          {% else %}
-            <div class="notice">No yearly data for this scope.</div>
-          {% endif %}
-
-          <div class="section-title">Year x Tegund table</div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Year</th>
-                  <th>Tegund</th>
-                  <th class="num">Total sum</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for row in yearly_rows %}
-                  <tr>
-                    <td>{{ row['year'] }}</td>
-                    <td>{{ row['tegund'] }}</td>
-                    <td class="num">{{ row['total_sum_fmt'] }}</td>
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-
-          <div class="section-title">Tegund totals</div>
           <div class="section-title">Year filter (totals table)</div>
           <div class="pill-grid">
             {% for y in report_year_links %}
@@ -79,6 +48,15 @@
               </a>
             {% endfor %}
           </div>
+
+          <div class="section-title">Tegund development by year</div>
+          {% if yearly_rows %}
+            <div class="chart-wrap"><canvas id="yearlyChart" class="chart"></canvas></div>
+          {% else %}
+            <div class="notice">No yearly data for this scope.</div>
+          {% endif %}
+
+          <div class="section-title">Tegund totals</div>
           <div class="table-wrap">
             <table>
               <thead>
