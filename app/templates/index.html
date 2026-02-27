@@ -28,33 +28,39 @@
     {% else %}
       <div class="container">
         <aside class="panel">
-          <div class="section-title">Years</div>
-          <div class="pill-grid">
-            {% for link in year_links %}
-              <a class="pill {% if link.active %}active{% endif %}" href="{{ link.url }}">{{ link.label }}</a>
-            {% endfor %}
-          </div>
+          <form method="get" action="{{ url_for('index') }}" class="stack-form">
+            <input type="hidden" name="page" value="1" />
 
-          <div class="section-title">Kaupandi</div>
-          <div class="pill-grid">
-            {% for link in buyer_links %}
-              <a class="pill {% if link.active %}active{% endif %}" href="{{ link.url }}">{{ link.label }}</a>
-            {% endfor %}
-          </div>
+            <label for="year">Year</label>
+            <select id="year" name="year">
+              {% for link in year_links %}
+                <option value="{{ link.value }}" {% if link.value == year %}selected{% endif %}>{{ link.label }}</option>
+              {% endfor %}
+            </select>
 
-          <div class="section-title">Birgi</div>
-          <div class="pill-grid">
-            {% for link in vendor_links %}
-              <a class="pill {% if link.active %}active{% endif %}" href="{{ link.url }}">{{ link.label }}</a>
-            {% endfor %}
-          </div>
+            <label for="buyer">Kaupandi</label>
+            <select id="buyer" name="buyer">
+              {% for link in buyer_links %}
+                <option value="{{ link.value }}" {% if link.value == buyer %}selected{% endif %}>{{ link.label }}</option>
+              {% endfor %}
+            </select>
 
-          <div class="section-title">Tegund</div>
-          <div class="pill-grid">
-            {% for link in type_links %}
-              <a class="pill {% if link.active %}active{% endif %}" href="{{ link.url }}">{{ link.label }}</a>
-            {% endfor %}
-          </div>
+            <label for="vendor">Birgi</label>
+            <select id="vendor" name="vendor">
+              {% for link in vendor_links %}
+                <option value="{{ link.value }}" {% if link.value == vendor %}selected{% endif %}>{{ link.label }}</option>
+              {% endfor %}
+            </select>
+
+            <label for="type">Tegund</label>
+            <select id="type" name="type">
+              {% for link in type_links %}
+                <option value="{{ link.value }}" {% if link.value == entry_type %}selected{% endif %}>{{ link.label }}</option>
+              {% endfor %}
+            </select>
+
+            <button type="submit">Apply</button>
+          </form>
         </aside>
 
         <section class="panel">

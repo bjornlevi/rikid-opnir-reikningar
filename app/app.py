@@ -44,6 +44,10 @@ ANOMALY_PARENT_COLUMNS = [
     "Tegund",
 ]
 
+DISPLAY_FIXUPS = {
+    "Menntasj��ur n�msmanna": "Menntasjóður námsmanna",
+}
+
 
 def _format_number(value) -> str:
     if value is None:
@@ -53,6 +57,15 @@ def _format_number(value) -> str:
     except (TypeError, ValueError):
         return str(value)
     return f"{number:,.0f}".replace(",", ".")
+
+
+def _display_text(value):
+    if value is None:
+        return value
+    text = str(value)
+    if text in DISPLAY_FIXUPS:
+        return DISPLAY_FIXUPS[text]
+    return text
 
 
 def _safe_path(path: Path) -> str:
@@ -268,6 +281,9 @@ def create_app() -> Flask:
                 item = dict(zip(columns, row))
                 if "Upphæð línu" in item and item["Upphæð línu"] is not None:
                     item["Upphæð línu"] = _format_number(item["Upphæð línu"])
+                for key in ("Kaupandi", "Birgi", "Tegund"):
+                    if key in item and item[key] is not None:
+                        item[key] = _display_text(item[key])
                 rows.append(item)
 
             years = [
@@ -280,17 +296,17 @@ def create_app() -> Flask:
 
             buyer_where, buyer_params = _build_where(year, buyer, vendor, entry_type, exclude="buyer")
             buyer_rows = con.execute(
-                f'SELECT "Kaupandi", COUNT(*) FROM data {buyer_where} GROUP BY "Kaupandi" ORDER BY COUNT(*) DESC LIMIT 50',
+                f'SELECT "Kaupandi", COUNT(*) FROM data {buyer_where} GROUP BY "Kaupandi" ORDER BY "Kaupandi" ASC',
                 buyer_params,
             ).fetchall()
             vendor_where, vendor_params = _build_where(year, buyer, vendor, entry_type, exclude="vendor")
             vendor_rows = con.execute(
-                f'SELECT "Birgi", COUNT(*) FROM data {vendor_where} GROUP BY "Birgi" ORDER BY COUNT(*) DESC LIMIT 50',
+                f'SELECT "Birgi", COUNT(*) FROM data {vendor_where} GROUP BY "Birgi" ORDER BY "Birgi" ASC',
                 vendor_params,
             ).fetchall()
             type_where, type_params = _build_where(year, buyer, vendor, entry_type, exclude="type")
             type_rows = con.execute(
-                f'SELECT "Tegund", COUNT(*) FROM data {type_where} GROUP BY "Tegund" ORDER BY COUNT(*) DESC LIMIT 50',
+                f'SELECT "Tegund", COUNT(*) FROM data {type_where} GROUP BY "Tegund" ORDER BY "Tegund" ASC',
                 type_params,
             ).fetchall()
         finally:
@@ -314,7 +330,7 @@ def create_app() -> Flask:
             if value is None:
                 continue
             buyer_links.append({
-                "label": f"{value} ({_format_number(count)})",
+                "label": f"{_display_text(value)} ({_format_number(count)})",
                 "value": value,
                 "url": url_for("index", **{**base_params, "buyer": _toggle_value(buyer, value), "page": 1}),
                 "active": value == buyer,
@@ -325,7 +341,7 @@ def create_app() -> Flask:
             if value is None:
                 continue
             vendor_links.append({
-                "label": f"{value} ({_format_number(count)})",
+                "label": f"{_display_text(value)} ({_format_number(count)})",
                 "value": value,
                 "url": url_for("index", **{**base_params, "vendor": _toggle_value(vendor, value), "page": 1}),
                 "active": value == vendor,
@@ -336,7 +352,7 @@ def create_app() -> Flask:
             if value is None:
                 continue
             type_links.append({
-                "label": f"{value} ({_format_number(count)})",
+                "label": f"{_display_text(value)} ({_format_number(count)})",
                 "value": value,
                 "url": url_for("index", **{**base_params, "type": _toggle_value(entry_type, value), "page": 1}),
                 "active": value == entry_type,
@@ -903,11 +919,12 @@ def create_app() -> Flask:
                 FROM data
                 WHERE "Kaupandi" IS NOT NULL
                 GROUP BY "Kaupandi"
-                ORDER BY total_sum DESC NULLS LAST
+                ORDER BY buyer ASC
                 """
             )
             for row in buyer_rows:
                 row["total_sum_fmt"] = _format_number(row.get("total_sum"))
+                row["buyer_display"] = _display_text(row.get("buyer"))
             buyer_total_row = {
                 "total_sum_fmt": _format_number(sum(float(r.get("total_sum") or 0) for r in buyer_rows)),
                 "row_count": int(sum(int(r.get("row_count") or 0) for r in buyer_rows)),
@@ -921,10 +938,12 @@ def create_app() -> Flask:
                     COUNT(*) AS row_count
                 FROM data
                 GROUP BY COALESCE("Tegund", '(empty)')
-                ORDER BY total_sum DESC NULLS LAST, tegund
+                ORDER BY tegund ASC
                 """
             )
             tegund_option_names = [str(row.get("tegund")) for row in tegund_options]
+            for row in tegund_options:
+                row["tegund_display"] = _display_text(row.get("tegund"))
 
             buyer_options = set(str(row.get("buyer")) for row in buyer_rows)
             if buyer and buyer not in buyer_options:
@@ -1005,6 +1024,7 @@ def create_app() -> Flask:
                 row["total_sum_fmt"] = _format_number(row.get("total_sum"))
                 row["positive_sum_fmt"] = _format_number(row.get("positive_sum"))
                 row["negative_sum_fmt"] = _format_number(row.get("negative_sum"))
+                row["group_label_display"] = _display_text(row.get("group_label"))
             totals_total_row = {
                 "total_sum_fmt": _format_number(sum(float(r.get("total_sum") or 0) for r in totals_rows)),
                 "positive_sum_fmt": _format_number(sum(float(r.get("positive_sum") or 0) for r in totals_rows)),
@@ -1100,6 +1120,7 @@ def create_app() -> Flask:
                 mode=mode,
                 buyer=buyer,
                 selected_tegund=selected_tegund,
+                selected_tegund_display=_display_text(selected_tegund) if selected_tegund else "",
                 buyer_rows=buyer_rows,
                 buyer_total_row=buyer_total_row,
                 tegund_options=tegund_options,

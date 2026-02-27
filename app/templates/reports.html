@@ -23,52 +23,52 @@
     {% else %}
       {% if selected_tegund %}
         <section class="notice">
-          <p>Selected tegund: <strong>{{ selected_tegund }}</strong></p>
+          <p>Selected tegund: <strong>{{ selected_tegund_display }}</strong></p>
         </section>
       {% endif %}
       <div class="container">
         <aside class="panel">
-          <div class="section-title">Mode</div>
-          <div class="pill-grid">
-            <a class="pill {% if mode == 'by_kaupandi' %}active{% endif %}" href="{{ build_reports_url(base_params, mode='by_kaupandi') }}">By kaupandi</a>
-            <a class="pill {% if mode == 'by_tegund' %}active{% endif %}" href="{{ build_reports_url(base_params, mode='by_tegund') }}">By tegund</a>
-          </div>
+          <form method="get" action="{{ url_for('reports') }}" class="stack-form">
+            <label for="mode">Mode</label>
+            <select id="mode" name="mode">
+              <option value="by_kaupandi" {% if mode == 'by_kaupandi' %}selected{% endif %}>By kaupandi</option>
+              <option value="by_tegund" {% if mode == 'by_tegund' %}selected{% endif %}>By tegund</option>
+            </select>
 
-          {% if mode == 'by_kaupandi' %}
-            <div class="section-title">Kaupandi</div>
-            <div class="pill-grid">
-              <a class="pill {% if not buyer %}active{% endif %}" href="{{ build_reports_url(base_params, buyer='') }}">All</a>
-              {% for row in buyer_rows[:120] %}
-                <a class="pill {% if row['buyer'] == buyer %}active{% endif %}" href="{{ build_reports_url(base_params, buyer=row['buyer']) }}">
-                  {{ row['buyer'] }}
-                </a>
+            {% if mode == 'by_kaupandi' %}
+              <label for="buyer">Kaupandi</label>
+              <select id="buyer" name="buyer">
+                <option value="" {% if not buyer %}selected{% endif %}>All</option>
+                {% for row in buyer_rows %}
+                  <option value="{{ row['buyer'] }}" {% if row['buyer'] == buyer %}selected{% endif %}>{{ row['buyer_display'] }}</option>
+                {% endfor %}
+              </select>
+              <input type="hidden" name="tegund" value="{{ selected_tegund }}" />
+            {% else %}
+              <label for="tegund">Tegund</label>
+              <select id="tegund" name="tegund">
+                <option value="" {% if not selected_tegund %}selected{% endif %}>All</option>
+                {% for row in tegund_options %}
+                  <option value="{{ row['tegund'] }}" {% if row['tegund'] == selected_tegund %}selected{% endif %}>{{ row['tegund_display'] }}</option>
+                {% endfor %}
+              </select>
+              <input type="hidden" name="buyer" value="{{ buyer }}" />
+            {% endif %}
+
+            <label for="report_year">Year (totals table)</label>
+            <select id="report_year" name="report_year">
+              {% for y in report_year_links %}
+                <option value="{{ y }}" {% if y == report_year %}selected{% endif %}>{{ 'All' if y == 'all' else y }}</option>
               {% endfor %}
-            </div>
-          {% else %}
-            <div class="section-title">Tegund</div>
-            <div class="pill-grid">
-              <a class="pill {% if not selected_tegund %}active{% endif %}" href="{{ build_reports_url(base_params, tegund='') }}">All</a>
-              {% for row in tegund_options[:120] %}
-                <a class="pill {% if row['tegund'] == selected_tegund %}active{% endif %}" href="{{ build_reports_url(base_params, tegund=row['tegund']) }}">
-                  {{ row['tegund'] }}
-                </a>
-              {% endfor %}
-            </div>
-          {% endif %}
+            </select>
+
+            <button type="submit">Apply</button>
+          </form>
         </aside>
 
         <section class="panel">
           <div class="section-title">Scope</div>
           <p>{{ scope_label }}</p>
-
-          <div class="section-title">Year filter (totals table)</div>
-          <div class="pill-grid">
-            {% for y in report_year_links %}
-              <a class="pill {% if y == report_year %}active{% endif %}" href="{{ build_reports_url(base_params, report_year=y) }}">
-                {{ 'All' if y == 'all' else y }}
-              </a>
-            {% endfor %}
-          </div>
 
           <div class="section-title">Development by year</div>
           {% if yearly_rows %}
@@ -94,9 +94,9 @@
                   <tr>
                     <td>
                       {% if mode == 'by_kaupandi' %}
-                        <a href="{{ build_reports_url(base_params, tegund=('' if selected_tegund == row['group_label'] else row['group_label'])) }}">{{ row['group_label'] }}</a>
+                        <a href="{{ build_reports_url(base_params, tegund=('' if selected_tegund == row['group_label'] else row['group_label'])) }}">{{ row['group_label_display'] }}</a>
                       {% else %}
-                        <a href="{{ build_reports_url(base_params, buyer=('' if buyer == row['group_label'] else row['group_label'])) }}">{{ row['group_label'] }}</a>
+                        <a href="{{ build_reports_url(base_params, buyer=('' if buyer == row['group_label'] else row['group_label'])) }}">{{ row['group_label_display'] }}</a>
                       {% endif %}
                     </td>
                     <td class="num">{{ row['total_sum_fmt'] }}</td>
