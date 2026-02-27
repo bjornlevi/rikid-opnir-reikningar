@@ -1081,7 +1081,14 @@ def create_app() -> Flask:
                     }
                 )
 
-            series_names = sorted({str(row.get("series_name")) for row in yearly_rows_raw if row.get("series_name") is not None})
+            series_total_map: dict[str, float] = {}
+            for row in yearly_rows_raw:
+                name = row.get("series_name")
+                if name is None:
+                    continue
+                key = str(name)
+                series_total_map[key] = series_total_map.get(key, 0.0) + float(row.get("total_sum") or 0.0)
+            series_names = [k for k, _ in sorted(series_total_map.items(), key=lambda item: item[1], reverse=True)]
             palette = [
                 "#2563eb",
                 "#16a34a",
